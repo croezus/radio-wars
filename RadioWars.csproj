@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{A7C2D348-7B83-49A1-97F4-51CE2719B912}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>RadioWars</RootNamespace>
+    <AssemblyName>RadioWars</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- Game and BepInEx Paths -->
+  <PropertyGroup>
+    <GameDir>E:\SteamLibrary\steamapps\common\Nuclear Option</GameDir>
+    <ManagedDir>$(GameDir)\NuclearOption_Data\Managed</ManagedDir>
+    <BepInExDir>$(GameDir)\BepInEx\core</BepInExDir>
+    <PluginsDir>$(GameDir)\BepInEx\plugins\RadioWars</PluginsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Core runtime and netstandard -->
+    <Reference Include="mscorlib">
+      <HintPath>$(ManagedDir)\mscorlib.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="netstandard">
+      <HintPath>$(ManagedDir)\netstandard.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System">
+      <HintPath>$(ManagedDir)\System.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Core">
+      <HintPath>$(ManagedDir)\System.Core.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    
+    <!-- Nuclear Option Managed Assemblies -->
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(ManagedDir)\Assembly-CSharp.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(ManagedDir)\UnityEngine.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(ManagedDir)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(ManagedDir)\UnityEngine.AudioModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(ManagedDir)\UnityEngine.UI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(ManagedDir)\UnityEngine.UIModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(ManagedDir)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(ManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(ManagedDir)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Mirage">
+      <HintPath>$(ManagedDir)\Mirage.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(ManagedDir)\Unity.TextMeshPro.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+
+    <!-- BepInEx and Harmony Core Assemblies -->
+    <Reference Include="BepInEx">
+      <HintPath>$(BepInExDir)\BepInEx.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BepInExDir)\0Harmony.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RadioWarsPlugin.cs" />
+    <Compile Include="Config\RadioWarsConfig.cs" />
+    <Compile Include="Core\RadarPhysics.cs" />
+    <Compile Include="Core\AspectRCS.cs" />
+    <Compile Include="Core\DopplerClutterProcessor.cs" />
+    <Compile Include="Core\ElectronicWarfare.cs" />
+    <Compile Include="Core\RadarTelemetry.cs" />
+    <Compile Include="Core\FastReflection.cs" />
+    <Compile Include="Core\RWRTierDatabase.cs" />
+    <Compile Include="Core\DatalinkNetwork.cs" />
+    <Compile Include="Core\RWRConeGraphic.cs" />
+    <Compile Include="Core\RWRTriangulationProcessor.cs" />
+    <Compile Include="Core\TrackUncertaintyCalculator.cs" />
+    <Compile Include="Core\MunitionRCSDatabase.cs" />
+    <Compile Include="Components\PhysRadarEmitter.cs" />
+    <Compile Include="Components\PhysRadarTarget.cs" />
+    <Compile Include="Components\PhysRWRReceiver.cs" />
+    <Compile Include="Components\RadioWarsDebugHUD.cs" />
+    <Compile Include="Components\RadarDebugVisualizer.cs" />
+    <Compile Include="Components\DatalinkDebugVisualizer.cs" />
+    <Compile Include="Components\TacScreenTacticalDisplay.cs" />
+    <Compile Include="Components\FlightHUDEWIndicator.cs" />
+    <Compile Include="Components\MissileTrajectoryHUDVisualizer.cs" />
+    <Compile Include="Components\MissileMapDispersionVisualizer.cs" />
+    <Compile Include="Patches\RadarPatches.cs" />
+    <Compile Include="Patches\SeekerPatches.cs" />
+    <Compile Include="Patches\JammerPatches.cs" />
+    <Compile Include="Patches\TargetPatches.cs" />
+    <Compile Include="Patches\DynamicMapPatches.cs" />
+    <Compile Include="Patches\TacScreenPatches.cs" />
+    <Compile Include="Patches\CockpitWarningLightsPatches.cs" />
+    <Compile Include="Patches\FlightHUDPatches.cs" />
+    <Compile Include="Patches\MissilePatches.cs" />
+    <Compile Include="Patches\NotchAidsPatches.cs" />
+    <Compile Include="Patches\CombatHUDPatches.cs" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+
+  <Target Name="AfterBuild" Condition="Exists('$(GameDir)\BepInEx\plugins')">
+    <MakeDir Directories="$(PluginsDir)" Condition="!Exists('$(PluginsDir)')" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginsDir)" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(PluginsDir)" ContinueOnError="true" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+  </Target>
+</Project>
