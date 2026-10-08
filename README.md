@@ -11,7 +11,7 @@ Radio Wars replaces distance-based radar abstractions with continuous electromag
 | Key | System | Description |
 |---|---|---|
 | `F10` | **Master A/B Toggle** | Hot-swaps between Radio Wars physics and 100% vanilla engine routines. |
-| `F9` | **Telemetry HUD** | Displays real-time physical telemetry (\(P_r, P_n, P_c, P_j\), SINR, dynamic RCS, radial velocity, \(R_{\text{burn}}\)). |
+| `F9` | **Telemetry HUD** | Displays real-time physical telemetry, SINR, dynamic RCS, radial velocity etc. |
 | `F8` | **Datalink Visualizer** | Renders 3D sensor mesh lines, donor track vectors, HUD contact reticles, and network telemetry. |
 | `F11` | **Raycast Gizmos** | 3D visualizers for radar line-of-sight rays, Doppler projections, and notch crossbars. |
 
