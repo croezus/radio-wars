@@ -157,6 +157,16 @@ namespace RadioWars.Config
         public static ConfigEntry<float> TrackUncertaintyMemoryTimeoutSeconds;
         public static ConfigEntry<bool> ShowMissileAimpointOnMap;
         public static ConfigEntry<bool> ShowPlayerMissilesOnlyOnMap;
+        public static ConfigEntry<bool> AIEvaluateMissileLaunchDoctrine;
+        public static ConfigEntry<float> AIMinimumTacticalLaunchQuality;
+        public static ConfigEntry<float> AIMinimumLongRangeLaunchQuality;
+        public static ConfigEntry<float> AIMinimumStrategicLaunchQuality;
+        public static ConfigEntry<float> AIMinimumBallisticLaunchQuality;
+        public static ConfigEntry<bool> AIEnforceStandoffSurvival;
+        public static ConfigEntry<float> AIMedusaSafeStandoffDistanceKm;
+        public static ConfigEntry<bool> SARHEnableLoftTerrainClearance;
+        public static ConfigEntry<bool> MissileEnforceSelfDestructWatchdog;
+        public static ConfigEntry<float> MissileMaxBattlefieldRadiusKm;
 
         public static void Initialize(ConfigFile config)
         {
@@ -900,6 +910,76 @@ namespace RadioWars.Config
                 "When true, only munitions launched by the player aircraft are displayed on the tactical map aimpoint visualizer. When false, all friendly faction missiles are displayed."
             );
 
+            AIEvaluateMissileLaunchDoctrine = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "AIEvaluateMissileLaunchDoctrine",
+                true,
+                "When TRUE, AI aircraft, helicopters, and ground/naval missile turrets evaluate track quality Q and seeker basket envelopes before firing missiles, refusing to waste munitions at low tracking quality and preserving safe standoff distance."
+            );
+
+            AIMinimumTacticalLaunchQuality = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "AIMinimumTacticalLaunchQuality",
+                0.40f,
+                "Minimum required track quality Q (0.0 to 1.0, default: 0.40 = 40%) for AI to launch short and medium-range tactical missiles (ranges < 50 km: Scythe, ARAD-45, RAM-45, MMR-S3, AGM-48, bombs)."
+            );
+
+            AIMinimumLongRangeLaunchQuality = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "AIMinimumLongRangeLaunchQuality",
+                0.50f,
+                "Minimum required track quality Q (0.0 to 1.0, default: 0.50 = 50%) for AI to launch long-range missiles (ranges 50-100 km: ARAD-116, Tusko-B/N, NL-98, StratoLance R9, Sabre)."
+            );
+
+            AIMinimumStrategicLaunchQuality = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "AIMinimumStrategicLaunchQuality",
+                0.60f,
+                "Minimum required track quality Q (0.0 to 1.0, default: 0.60 = 60%) for AI to launch strategic, standoff, and super long-range munitions (ranges >= 100 km or cruise: AAM-36 Scimitar, AGM-99, ALM-C450, ALND-4, AShM-300, Starfall, Sunfall, Zenith)."
+            );
+
+            AIMinimumBallisticLaunchQuality = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "AIMinimumBallisticLaunchQuality",
+                0.90f,
+                "Minimum required track quality Q (0.0 to 1.0, default: 0.90 = 90%) for AI to launch precision ballistic munitions without terminal seekers (e.g. Piledriver TBM, ballistic missiles). Since these weapons have no terminal homing seekers and fly across massive distances (up to 250 km), firing at lower quality causes severe CEP dispersion misses."
+            );
+
+            AIEnforceStandoffSurvival = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "AIEnforceStandoffSurvival",
+                true,
+                "When TRUE, AI aircraft armed with standoff munitions preserve safe standoff distance when tracking quality Q is insufficient, turning away / orbiting to maintain radar illumination instead of flying directly at the target in a suicidal kamikaze rush."
+            );
+
+            AIMedusaSafeStandoffDistanceKm = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "AIMedusaSafeStandoffDistanceKm",
+                25.0f,
+                "Safe standoff distance in kilometers for dedicated electronic warfare support aircraft (EW-25 Medusa), keeping her outside lethal SAM threat zones (default: 25.0 km)."
+            );
+
+            SARHEnableLoftTerrainClearance = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "SARHEnableLoftTerrainClearance",
+                true,
+                "When TRUE, long-range SARH missiles (StratoLance R9, etc.) perform smart obstacle clearance and midcourse lofting to climb over mountain ridges instead of flying directly into terrain."
+            );
+
+            MissileEnforceSelfDestructWatchdog = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "MissileEnforceSelfDestructWatchdog",
+                true,
+                "When TRUE, an active watchdog detonates munitions that miss their target, pass their target datum with no active radar/seeker return, or overshoot ballistic apogee without hitting."
+            );
+
+            MissileMaxBattlefieldRadiusKm = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "MissileMaxBattlefieldRadiusKm",
+                120.0f,
+                "Maximum tactical battlefield radius in kilometers. Missiles exceeding this distance from map origin are automatically detonated to prevent infinite off-map flights."
+            );
+
             if (GameplayPreset.Value == ConfigurationPreset.SidnensPreset)
             {
                 ApplySidnenPreset();
@@ -924,6 +1004,16 @@ namespace RadioWars.Config
             if (ARHTerminalActivationDistanceMeters != null) ARHTerminalActivationDistanceMeters.Value = 10000.0f;
             if (ARADTerminalActivationDistanceMeters != null) ARADTerminalActivationDistanceMeters.Value = 7000.0f;
             if (MissileTerminalActivationDistanceMeters != null) MissileTerminalActivationDistanceMeters.Value = 2800.0f;
+            if (AIEvaluateMissileLaunchDoctrine != null) AIEvaluateMissileLaunchDoctrine.Value = true;
+            if (AIMinimumTacticalLaunchQuality != null) AIMinimumTacticalLaunchQuality.Value = 0.40f;
+            if (AIMinimumLongRangeLaunchQuality != null) AIMinimumLongRangeLaunchQuality.Value = 0.50f;
+            if (AIMinimumStrategicLaunchQuality != null) AIMinimumStrategicLaunchQuality.Value = 0.60f;
+            if (AIMinimumBallisticLaunchQuality != null) AIMinimumBallisticLaunchQuality.Value = 0.90f;
+            if (AIEnforceStandoffSurvival != null) AIEnforceStandoffSurvival.Value = true;
+            if (AIMedusaSafeStandoffDistanceKm != null) AIMedusaSafeStandoffDistanceKm.Value = 25.0f;
+            if (SARHEnableLoftTerrainClearance != null) SARHEnableLoftTerrainClearance.Value = true;
+            if (MissileEnforceSelfDestructWatchdog != null) MissileEnforceSelfDestructWatchdog.Value = true;
+            if (MissileMaxBattlefieldRadiusKm != null) MissileMaxBattlefieldRadiusKm.Value = 120.0f;
         }
 
         public static void ApplyDefaultPreset()
@@ -940,6 +1030,16 @@ namespace RadioWars.Config
             if (ARHTerminalActivationDistanceMeters != null) ARHTerminalActivationDistanceMeters.Value = 10000.0f;
             if (ARADTerminalActivationDistanceMeters != null) ARADTerminalActivationDistanceMeters.Value = 7000.0f;
             if (MissileTerminalActivationDistanceMeters != null) MissileTerminalActivationDistanceMeters.Value = 2800.0f;
+            if (AIEvaluateMissileLaunchDoctrine != null) AIEvaluateMissileLaunchDoctrine.Value = true;
+            if (AIMinimumTacticalLaunchQuality != null) AIMinimumTacticalLaunchQuality.Value = 0.40f;
+            if (AIMinimumLongRangeLaunchQuality != null) AIMinimumLongRangeLaunchQuality.Value = 0.50f;
+            if (AIMinimumStrategicLaunchQuality != null) AIMinimumStrategicLaunchQuality.Value = 0.60f;
+            if (AIMinimumBallisticLaunchQuality != null) AIMinimumBallisticLaunchQuality.Value = 0.90f;
+            if (AIEnforceStandoffSurvival != null) AIEnforceStandoffSurvival.Value = true;
+            if (AIMedusaSafeStandoffDistanceKm != null) AIMedusaSafeStandoffDistanceKm.Value = 25.0f;
+            if (SARHEnableLoftTerrainClearance != null) SARHEnableLoftTerrainClearance.Value = true;
+            if (MissileEnforceSelfDestructWatchdog != null) MissileEnforceSelfDestructWatchdog.Value = true;
+            if (MissileMaxBattlefieldRadiusKm != null) MissileMaxBattlefieldRadiusKm.Value = 120.0f;
         }
 
         public static bool IsModActive

@@ -47,5 +47,19 @@ namespace RadioWars.Core
                 return null;
             }
         }
+
+        public static Action<TTarget> CreateActionInvoker<TTarget>(string methodName)
+        {
+            try
+            {
+                MethodInfo mi = AccessTools.Method(typeof(TTarget), methodName);
+                if (mi == null) return null;
+                return (Action<TTarget>)Delegate.CreateDelegate(typeof(Action<TTarget>), mi);
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 }

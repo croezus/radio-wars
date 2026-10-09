@@ -97,19 +97,116 @@ namespace RadioWars.Patches
                     }
                 }
 
-                // Threat is untriangulated or memory expired: suppress god-mode pinpoint coordinates
-                bool hideIcons = RadioWarsConfig.HideUntriangulatedRadarIcons == null || RadioWarsConfig.HideUntriangulatedRadarIcons.Value;
-                if (hideIcons)
-                {
-                    __result = false;
-                    return false;
-                }
-
+                // If not tracked via RWR triangulation, allow vanilla radar tracking database to resolve target
                 return true;
             }
             catch (Exception ex)
             {
                 Debug.LogError("[RadioWars] FactionHQ_TryGetKnownPosition_Patch error: " + ex);
+                return true;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(FactionHQ), "GetKnownPosition")]
+    public static class FactionHQ_GetKnownPosition_Patch
+    {
+        [HarmonyPrefix]
+        public static bool Prefix(FactionHQ __instance, Unit target, ref GlobalPosition? __result)
+        {
+            try
+            {
+                if (!RadioWarsConfig.IsModActive) return true;
+                if (target == null || target is Missile) return true;
+
+                if (target.NetworkHQ != null && __instance != null && target.NetworkHQ == __instance)
+                {
+                    return true;
+                }
+
+                if (!CombatHUDPatches.IsTrackableThreat(target, __instance))
+                {
+                    return true;
+                }
+
+                TriangulationTrack track = RWRTriangulationProcessor.GetTrack(__instance, target);
+                if (track != null)
+                {
+                    if (track.IsActivelyDetected)
+                    {
+                        __result = GlobalPositionExtensions.GlobalPosition(target);
+                        return false;
+                    }
+
+                    float memDuration = (RadioWarsConfig.TargetMemoryDurationSeconds != null)
+                        ? RadioWarsConfig.TargetMemoryDurationSeconds.Value
+                        : 120.0f;
+
+                    if (track.IsInMemoryState(memDuration))
+                    {
+                        __result = track.LastKnownGlobalPosition;
+                        return false;
+                    }
+                }
+
+                // If not tracked via RWR triangulation, allow vanilla radar tracking database to resolve target
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[RadioWars] FactionHQ_GetKnownPosition_Patch error: " + ex);
+                return true;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(FactionHQ), "IsTargetBeingTracked")]
+    public static class FactionHQ_IsTargetBeingTracked_Patch
+    {
+        [HarmonyPrefix]
+        public static bool Prefix(FactionHQ __instance, Unit target, ref bool __result)
+        {
+            try
+            {
+                if (!RadioWarsConfig.IsModActive) return true;
+                if (target == null || target is Missile) return true;
+
+                if (target.NetworkHQ != null && __instance != null && target.NetworkHQ == __instance)
+                {
+                    return true;
+                }
+
+                if (!CombatHUDPatches.IsTrackableThreat(target, __instance))
+                {
+                    return true;
+                }
+
+                TriangulationTrack track = RWRTriangulationProcessor.GetTrack(__instance, target);
+                if (track != null)
+                {
+                    if (track.IsActivelyDetected)
+                    {
+                        __result = true;
+                        return false;
+                    }
+
+                    float memDuration = (RadioWarsConfig.TargetMemoryDurationSeconds != null)
+                        ? RadioWarsConfig.TargetMemoryDurationSeconds.Value
+                        : 120.0f;
+
+                    if (track.IsInMemoryState(memDuration))
+                    {
+                        __result = true;
+                        return false;
+                    }
+                }
+
+                // If not tracked via RWR triangulation, allow vanilla radar tracking database to resolve target
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[RadioWars] FactionHQ_IsTargetBeingTracked_Patch error: " + ex);
                 return true;
             }
         }
@@ -143,6 +240,25 @@ namespace RadioWars.Patches
                 {
                     if (track.IsActivelyDetected)
                     {
+                        // Coarse navigation requirements (e.g. ARH midcourse datalink, threshold = 2000f, macro search)
+                        if (threshold >= 1500f)
+                        {
+                            __result = true;
+                            return false;
+                        }
+
+                        // High-precision fire control checks (e.g. AIPilotCombatModes.ManageTarget threshold = 100f):
+                        // Require tracking quality Q to meet the minimum tactical launch threshold (default: 0.40 = 40%)
+                        if (RadioWarsConfig.AIEvaluateMissileLaunchDoctrine != null && RadioWarsConfig.AIEvaluateMissileLaunchDoctrine.Value)
+                        {
+                            float minQ = (RadioWarsConfig.AIMinimumTacticalLaunchQuality != null)
+                                ? RadioWarsConfig.AIMinimumTacticalLaunchQuality.Value
+                                : 0.40f;
+
+                            __result = (track.TrackingQuality >= minQ);
+                            return false;
+                        }
+
                         __result = true;
                         return false;
                     }
@@ -163,14 +279,7 @@ namespace RadioWars.Patches
                     }
                 }
 
-                // Untriangulated or expired threat: suppress accurate lock
-                bool hideIcons = RadioWarsConfig.HideUntriangulatedRadarIcons == null || RadioWarsConfig.HideUntriangulatedRadarIcons.Value;
-                if (hideIcons)
-                {
-                    __result = false;
-                    return false;
-                }
-
+                // If not tracked via RWR triangulation, allow vanilla radar tracking accuracy checks to execute
                 return true;
             }
             catch (Exception ex)

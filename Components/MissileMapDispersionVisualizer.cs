@@ -174,6 +174,7 @@ namespace RadioWars.Components
                     bool isBallistic = SeekerDispersionHelper.IsBallisticOrInertial(seeker);
                     bool isIR = seeker is IRSeeker;
                     bool isLaser = seeker is LaserSeeker;
+                    bool isSARH = seeker is SARHSeeker;
                     bool isLocked = SeekerDispersionHelper.IsSeekerTerminalLocked(missile);
 
                     slot.SetActive(true);
@@ -196,8 +197,8 @@ namespace RadioWars.Components
                         PositionLine(slot.FlyToLineRt, missileLocalPos, aimLocalPos, 2.5f / layerScale, mapZ);
                         slot.FlyToLine.color = new Color(1.0f, 0.70f, 0.15f, 0.88f); // Amber / Gold
 
-                        // 1. Waypoint Marker at displaced aimpoint (omitted for direct IR line-of-sight)
-                        if (!isIR)
+                        // 1. Waypoint Marker at displaced aimpoint (omitted for direct IR line-of-sight and SARH continuous beam)
+                        if (!isIR && !isSARH)
                         {
                             if (!slot.AimMarker.gameObject.activeSelf) slot.AimMarker.gameObject.SetActive(true);
                             slot.AimMarkerRt.localPosition = aimLocalPos;
@@ -212,6 +213,7 @@ namespace RadioWars.Components
 
                         // 2. Terminal Seeker Pitbull Basket Ring (10 km for ARH, 7 km for ARAD, 2.8 km for Optical)
                         // Displayed for active radar, passive anti-radiation, and optical standoff weapons
+                        // Suppressed for SARH missiles (R9, RAM-45) which continuously ride carrier radar reflection without an autonomous pitbull basket
                         float weaponBasketDist = 2800.0f;
                         if (seeker is ARHSeeker)
                         {
@@ -232,7 +234,7 @@ namespace RadioWars.Components
                                 : 2800.0f;
                         }
 
-                        if (!isBallistic && !isIR && !isLaser)
+                        if (!isBallistic && !isIR && !isLaser && !isSARH)
                         {
                             if (!slot.BasketRing.gameObject.activeSelf) slot.BasketRing.gameObject.SetActive(true);
                             float ringDiamScreen = 2.0f * weaponBasketDist * mapFactor * layerScale;

@@ -1045,6 +1045,7 @@ namespace RadioWars.Patches
             SARHSeeker __instance,
             Unit ___targetUnit,
             Missile ___missile,
+            float ___trackingStrength,
             ref GlobalPosition ___knownPos)
         {
             try
@@ -1055,6 +1056,16 @@ namespace RadioWars.Patches
                 Unit target = ___targetUnit;
                 if (target == null || target.disabled) return;
 
+                // When carrier radar is actively illuminating target (SARH lock is solid),
+                // the missile rides the reflected CW radar beam straight to the target.
+                // Do NOT inject track uncertainty dispersion during active radar lock!
+                if (___trackingStrength > 0.05f)
+                {
+                    ___knownPos = GlobalPositionExtensions.GlobalPosition(target);
+                    return;
+                }
+
+                // If carrier radar lost lock and missile is coasting in memory:
                 Missile missile = ___missile;
                 FactionHQ hq = (missile != null) ? missile.NetworkHQ : null;
                 TriangulationTrack track = RWRTriangulationProcessor.GetTrack(hq, target);
@@ -1073,23 +1084,70 @@ namespace RadioWars.Patches
                     memLocal.z += disp.z;
                     ___knownPos = memLocal.ToGlobalPosition();
                 }
-                else if (disp != Vector3.zero && missile != null)
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[RadioWars] SARHSeeker_LockedMode_Patch Postfix error: " + ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Provides smart obstacle clearance and midcourse lofting for long-range SARH missiles (StratoLance R9, etc.).
+    /// Prevents missiles from crashing into mountain ridges during low-altitude / standoff engagements.
+    /// </summary>
+    [HarmonyPatch(typeof(SARHSeeker), "SendTargetInfo")]
+    public static class SARHSeeker_SendTargetInfo_Patch
+    {
+        [HarmonyPostfix]
+        public static void Postfix(
+            SARHSeeker __instance,
+            Missile ___missile,
+            GlobalPosition ___knownPos,
+            Vector3 ___knownVel)
+        {
+            try
+            {
+                if (!RadioWarsConfig.IsModActive) return;
+                if (__instance == null || ___missile == null || ___missile.disabled) return;
+                if (RadioWarsConfig.SARHEnableLoftTerrainClearance == null || !RadioWarsConfig.SARHEnableLoftTerrainClearance.Value) return;
+
+                // Safety gate: allow 4.0s of undisturbed flight for launch pitchover and initial boost
+                if (___missile.timeSinceSpawn < 4.0f) return;
+
+                Vector3 missilePos = ___missile.transform.position;
+                Vector3 targetPos = ___knownPos.ToLocalPosition();
+                Vector3 toTarget = targetPos - missilePos;
+                float dist = toTarget.magnitude;
+
+                // Midcourse / standoff flight (> 6 km): terrain obstacle clearance & lofting
+                if (dist > 6000.0f)
                 {
-                    // Decay initial launch uncertainty as carrier radar maintains lock
-                    float age = missile.timeSinceSpawn;
-                    float decay = Mathf.Exp(-age / 4.0f);
-                    if (decay > 0.05f)
+                    int mask = (int)PhysicsLayers.StaticsMask | (int)PhysicsLayers.ShipsMask;
+                    RaycastHit hit;
+                    if (Physics.Linecast(missilePos + Vector3.up * 5.0f, targetPos + Vector3.up * 5.0f, out hit, mask))
                     {
-                        Vector3 local = ___knownPos.ToLocalPosition();
-                        local.x += disp.x * decay;
-                        local.z += disp.z * decay;
-                        ___knownPos = local.ToGlobalPosition();
+                        if (hit.collider != null)
+                        {
+                            float hitDist = hit.distance;
+                            // Ensure the obstacle is an intermediate mountain ridge between missile and target,
+                            // rather than ground near the launcher pad or terrain beneath the target:
+                            if (hitDist > 1000.0f && hitDist < dist - 3000.0f)
+                            {
+                                float clearAlt = hit.point.y + 350.0f;
+                                if (missilePos.y < clearAlt)
+                                {
+                                    Vector3 loftPoint = hit.point + Vector3.up * 350.0f;
+                                    ___missile.SetAimpoint(loftPoint.ToGlobalPosition(), Vector3.zero);
+                                }
+                            }
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogError("[RadioWars] SARHSeeker_LockedMode_Patch Postfix error: " + ex);
+                Debug.LogError("[RadioWars] SARHSeeker_SendTargetInfo_Patch error: " + ex);
             }
         }
     }
@@ -1805,8 +1863,9 @@ namespace RadioWars.Patches
     }
 
     /// <summary>
-    /// Scales long-range ballistic missile (LRBM) circular error offset with team launch track uncertainty (Q).
-    /// Since ballistic missiles have no terminal seeker head, the munition detonates at the displaced coordinates.
+    /// Scales long-range ballistic missile (LRBM / Piledriver TBM) target coordinates with team launch track uncertainty (Q).
+    /// Fixes vanilla bug where aimpoint was ignored when firing at ground markers / untargeted points.
+    /// Does NOT call SetTrajectory prematurely - vanilla triggers SetTrajectory naturally once the rocket engine ignites.
     /// </summary>
     [HarmonyPatch(typeof(BallisticMissileGuidance), "Initialize", new Type[] { typeof(Unit), typeof(GlobalPosition) })]
     public static class BallisticMissileGuidance_Initialize_Patch
@@ -1815,8 +1874,13 @@ namespace RadioWars.Patches
         public static void Postfix(
             BallisticMissileGuidance __instance,
             Unit target,
+            GlobalPosition aimpoint,
             Missile ___missile,
-            ref Vector3 ___errorOffset)
+            float ___maxTargetSpeed,
+            ref GlobalPosition ___knownPos,
+            ref Vector3 ___knownVel,
+            ref Vector3 ___errorOffset,
+            ref float ___targetAngle)
         {
             try
             {
@@ -1824,18 +1888,112 @@ namespace RadioWars.Patches
                 if (__instance == null || ___missile == null) return;
 
                 Unit t = (target != null && !target.disabled) ? target : SeekerDispersionHelper.GetTargetForMissile(___missile);
-                if (t == null) return;
-
-                Vector3 disp = SeekerDispersionHelper.GetDispersionForMissile(___missile, t);
-                if (disp != Vector3.zero)
+                if (t != null)
                 {
-                    ___errorOffset.x += disp.x;
-                    ___errorOffset.z += disp.z;
+                    FactionHQ hq = ___missile.NetworkHQ ?? t.NetworkHQ;
+                    TriangulationTrack track = RWRTriangulationProcessor.GetTrack(hq, t);
+                    GlobalPosition basePos = (track != null)
+                        ? (track.IsActivelyDetected ? GlobalPositionExtensions.GlobalPosition(t) : track.LastKnownGlobalPosition)
+                        : GlobalPositionExtensions.GlobalPosition(t);
+
+                    Vector3 disp = SeekerDispersionHelper.GetDispersionForMissile(___missile, t);
+                    if (disp != Vector3.zero)
+                    {
+                        Vector3 local = basePos.ToLocalPosition();
+                        local.x += disp.x;
+                        local.z += disp.z;
+                        ___knownPos = local.ToGlobalPosition();
+                    }
+                    else
+                    {
+                        ___knownPos = basePos;
+                    }
+
+                    if (t.rb != null)
+                    {
+                        ___knownVel = Vector3.ClampMagnitude(t.rb.velocity, ___maxTargetSpeed);
+                    }
+                }
+                else
+                {
+                    // Target is a ground waypoint / GPS map coordinate:
+                    // Fix vanilla bug where aimpoint was completely ignored and replaced with forward * 100km!
+                    if (aimpoint != default(GlobalPosition))
+                    {
+                        ___knownPos = aimpoint;
+                        ___knownVel = Vector3.zero;
+                        ___errorOffset = Vector3.zero;
+                        ___missile.SetAimpoint(aimpoint, Vector3.zero);
+
+                        // Recalculate ballistic target angle for true distance to aimpoint:
+                        Vector3 diff = aimpoint.ToLocalPosition() - ___missile.transform.position;
+                        diff.y = 0f;
+                        float dist = diff.magnitude;
+                        float dV = ___missile.GetRemainingDeltaV();
+                        if (dV > 10f)
+                        {
+                            float sinVal = Mathf.Clamp01(dist * 9.81f / (dV * dV));
+                            float angle = Mathf.Asin(sinVal) * 0.5f * Mathf.Rad2Deg;
+                            if (angle <= 45f) angle = 90f - angle;
+                            if (!float.IsNaN(angle)) ___targetAngle = angle;
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Debug.LogError("[RadioWars] BallisticMissileGuidance_Initialize_Patch error: " + ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Continuously synchronizes ballistic missile trajectory with active team Datalink intelligence while preserving CEP launch dispersion.
+    /// Prevents ballistic guidance from freezing or inverting desired trajectory if target track ages.
+    /// </summary>
+    [HarmonyPatch(typeof(BallisticMissileGuidance), "SetTrajectory")]
+    public static class BallisticMissileGuidance_SetTrajectory_Patch
+    {
+        [HarmonyPrefix]
+        public static void Prefix(
+            BallisticMissileGuidance __instance,
+            Unit ___targetUnit,
+            Missile ___missile,
+            float ___maxTargetSpeed,
+            ref GlobalPosition ___knownPos,
+            ref Vector3 ___knownVel)
+        {
+            try
+            {
+                if (!RadioWarsConfig.IsModActive) return;
+                if (__instance == null || ___missile == null || ___missile.disabled) return;
+
+                Unit t = ___targetUnit;
+                if (t != null && !t.disabled)
+                {
+                    Vector3 disp = Vector3.zero;
+                    TrackUncertaintyCalculator.TryGetMissileDispersion(___missile, out disp);
+
+                    FactionHQ hq = ___missile.NetworkHQ ?? t.NetworkHQ;
+                    TriangulationTrack track = RWRTriangulationProcessor.GetTrack(hq, t);
+                    GlobalPosition basePos = (track != null)
+                        ? (track.IsActivelyDetected ? GlobalPositionExtensions.GlobalPosition(t) : track.LastKnownGlobalPosition)
+                        : GlobalPositionExtensions.GlobalPosition(t);
+
+                    Vector3 local = basePos.ToLocalPosition();
+                    local.x += disp.x;
+                    local.z += disp.z;
+                    ___knownPos = local.ToGlobalPosition();
+
+                    if (t.rb != null)
+                    {
+                        ___knownVel = Vector3.ClampMagnitude(t.rb.velocity, ___maxTargetSpeed);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[RadioWars] BallisticMissileGuidance_SetTrajectory_Patch error: " + ex);
             }
         }
     }

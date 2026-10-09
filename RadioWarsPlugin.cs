@@ -11,7 +11,7 @@ namespace RadioWars
     {
         public const string ModGuid = "com.radiowars.nuclearoption.overhaul";
         public const string ModName = "Radio Wars";
-        public const string ModVersion = "1.0.1";
+        public const string ModVersion = "1.0.2";
 
         public static RadioWarsPlugin Instance { get; private set; }
         public static ManualLogSource Log { get; private set; }

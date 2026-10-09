@@ -137,6 +137,7 @@
     <Compile Include="Core\RWRTriangulationProcessor.cs" />
     <Compile Include="Core\TrackUncertaintyCalculator.cs" />
     <Compile Include="Core\MunitionRCSDatabase.cs" />
+    <Compile Include="Core\MunitionClassification.cs" />
     <Compile Include="Components\PhysRadarEmitter.cs" />
     <Compile Include="Components\PhysRadarTarget.cs" />
     <Compile Include="Components\PhysRWRReceiver.cs" />
