@@ -132,6 +132,21 @@ namespace RadioWars.Patches
                 return false;
             }
 
+            // Airborne radar physical limitation:
+            // Airborne radars cannot acquire stationary ground radar stations or ground SAM sites due to physical scale and severe ground clutter / Doppler notch rejection.
+            // However, Ships (massive RCS on flat sea), Aircraft (airborne), and Missiles can be acquired normally.
+            Unit sourceUnit = __instance.GetAttachedUnit();
+            if (sourceUnit == null) sourceUnit = __instance.GetComponentInParent<Unit>();
+            if (sourceUnit is Aircraft)
+            {
+                bool isAirborneOrShip = (targetUnit is Aircraft) || (targetUnit is Ship) || (targetUnit is Missile);
+                if (!isAirborneOrShip)
+                {
+                    __result = false;
+                    return false;
+                }
+            }
+
             Vector3 targetPos = targetUnit.transform.position;
             Vector3 targetVel = targetUnit.rb != null ? targetUnit.rb.velocity : Vector3.zero;
 

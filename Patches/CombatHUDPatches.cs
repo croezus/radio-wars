@@ -136,7 +136,7 @@ namespace RadioWars.Patches
             {
                 return (RadioWarsConfig.VisualRadarIdentificationRangeMeters != null)
                     ? Mathf.Max(RadioWarsConfig.VisualRadarIdentificationRangeMeters.Value, 100.0f)
-                    : 2500.0f;
+                    : 10000.0f;
             }
         }
 
@@ -211,10 +211,10 @@ namespace RadioWars.Patches
 
     /// <summary>
     /// Synchronizes Helmet-Mounted Display (HMD) / CombatHUD unit markers and target designation
-    /// with tactical map reconnaissance rules:
-    /// 1. Suppresses pinpoint HUD markers and designation text for untriangulated RWR threats.
-    /// 2. Projects triangulated tracks on HMD using estimated triangulated coordinates.
-    /// 3. Prevents target selection for untriangulated emitters (blocking arcade lock and TargetCam exploitation).
+    /// with intelligence quality rules:
+    /// 1. Suppresses pinpoint HUD markers and designation text when TrackingQuality < HMD threshold (default: 0.30).
+    /// 2. Displays target markers once Q >= 0.30, with status/uncertainty conveyed via reticle coloring.
+    /// 3. Prevents target selection for low-intelligence emitters (blocking arcade lock and TargetCam exploitation).
     /// </summary>
     [HarmonyPatch(typeof(HUDUnitMarker), "UpdatePosition", new Type[] { typeof(FactionHQ), typeof(GlobalPosition), typeof(Vector3) })]
     public static class HUDUnitMarker_UpdatePosition_Patch
@@ -272,9 +272,7 @@ namespace RadioWars.Patches
                 // Query Faction Datalink Track for this threat
                 TriangulationTrack track = RWRTriangulationProcessor.GetTrack(playerHq, __instance.unit);
 
-                float memDuration = (RadioWarsConfig.TargetMemoryDurationSeconds != null)
-                    ? RadioWarsConfig.TargetMemoryDurationSeconds.Value
-                    : 120.0f;
+                float memDuration = RWRTriangulationProcessor.GetTargetMemoryDuration(__instance.unit);
 
                 // Layered Intelligence Filtering for HMD / CombatHUD:
                 // Radar threats only reveal HMD marker reticles once TrackingQuality exceeds threshold (default: 0.30 = 30%).
@@ -405,9 +403,7 @@ namespace RadioWars.Patches
 
                 TriangulationTrack track = RWRTriangulationProcessor.GetTrack(playerHq, target);
 
-                float memDuration = (RadioWarsConfig.TargetMemoryDurationSeconds != null)
-                    ? RadioWarsConfig.TargetMemoryDurationSeconds.Value
-                    : 120.0f;
+                float memDuration = RWRTriangulationProcessor.GetTargetMemoryDuration(target);
 
                 float hmdThreshold = (RadioWarsConfig.HMDReconnaissanceQualityThreshold != null)
                     ? RadioWarsConfig.HMDReconnaissanceQualityThreshold.Value
@@ -437,8 +433,8 @@ namespace RadioWars.Patches
     }
 
     /// <summary>
-    /// Blocks selecting or locking untriangulated RWR threats via CombatHUD.SelectUnit.
-    /// In unified mode, actively detected targets and targets in the 120s memory state can be selected once Q >= threshold.
+    /// Blocks selecting or locking low-intelligence RWR threats via CombatHUD.SelectUnit.
+    /// In unified mode, actively detected targets and targets in the memory state can be selected once Q >= threshold (default: 0.30).
     /// </summary>
     [HarmonyPatch(typeof(CombatHUD), "SelectUnit", new Type[] { typeof(Unit) })]
     public static class CombatHUD_SelectUnit_Patch
@@ -478,9 +474,7 @@ namespace RadioWars.Patches
 
                 TriangulationTrack track = RWRTriangulationProcessor.GetTrack(playerHq, unit);
 
-                float memDuration = (RadioWarsConfig.TargetMemoryDurationSeconds != null)
-                    ? RadioWarsConfig.TargetMemoryDurationSeconds.Value
-                    : 120.0f;
+                float memDuration = RWRTriangulationProcessor.GetTargetMemoryDuration(unit);
 
                 float hmdThreshold = (RadioWarsConfig.HMDReconnaissanceQualityThreshold != null)
                     ? RadioWarsConfig.HMDReconnaissanceQualityThreshold.Value

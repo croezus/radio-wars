@@ -120,27 +120,21 @@ namespace RadioWars.Core
             track.HadActiveContact = true;
             track.IsTriangulated = true;
 
-            // Check visual boost cooldown (default: 180 seconds / 3 minutes)
-            float cooldown = (RadioWarsConfig.VisualReconnaissanceCooldownSeconds != null)
-                ? Mathf.Max(RadioWarsConfig.VisualReconnaissanceCooldownSeconds.Value, 0.0f)
-                : 180.0f;
+            float boost = (RadioWarsConfig.VisualReconnaissanceBoost != null)
+                ? Mathf.Clamp01(RadioWarsConfig.VisualReconnaissanceBoost.Value)
+                : 0.80f;
 
-            if (track.LastVisualBoostTime <= 0f || (now - track.LastVisualBoostTime) >= cooldown)
-            {
-                track.LastVisualBoostTime = now;
-                float boost = (RadioWarsConfig.VisualReconnaissanceBoost != null)
-                    ? Mathf.Clamp01(RadioWarsConfig.VisualReconnaissanceBoost.Value)
-                    : 0.35f;
-
-                track.TrackingQuality = Mathf.Clamp01(track.TrackingQuality + boost);
-                track.ContinuousDwellSeconds = Mathf.Max(track.ContinuousDwellSeconds, 10.0f);
-            }
+            // Direct visual identification establishes and sustains high confidence tracking (>= 0.80)
+            track.TrackingQuality = Mathf.Max(track.TrackingQuality, boost);
+            track.ContinuousDwellSeconds = Mathf.Max(track.ContinuousDwellSeconds, 10.0f);
         }
 
         /// <summary>
         /// Registers a passive RWR RF strobe detection from enemy radar emissions.
         /// Weighted by range coefficient (significant below 5 km) and receiver hardware tier.
         /// Progress ticks at most once per configurable tick interval (default: 1.0s) per target.
+        /// Un-triangulated passive tracks are capped at PassiveRwrQualityCap (default: 0.20) to prevent
+        /// artificial unmasking without geometric baseline or active sensor fusion.
         /// </summary>
         public static void RecordRWRDetection(TriangulationTrack track, float distanceMeters, RwrTier tier, bool isOwnship)
         {
@@ -168,7 +162,14 @@ namespace RadioWars.Core
             float baseTick = isOwnship ? configBase : (configBase * 0.57f);
             float deltaQ = baseTick * rangeWeight * tierMult;
 
-            track.TrackingQuality = Mathf.Clamp01(track.TrackingQuality + deltaQ);
+            float cap = track.IsTriangulated
+                ? 1.0f
+                : ((RadioWarsConfig.PassiveRwrQualityCap != null) ? RadioWarsConfig.PassiveRwrQualityCap.Value : 0.20f);
+
+            if (track.TrackingQuality < cap)
+            {
+                track.TrackingQuality = Mathf.Min(cap, track.TrackingQuality + deltaQ);
+            }
         }
 
         /// <summary>
@@ -181,7 +182,7 @@ namespace RadioWars.Core
             float now = Time.timeSinceLevelLoad;
             float baseBoost = (RadioWarsConfig.TriangulationBaselineBoost != null)
                 ? Mathf.Clamp01(RadioWarsConfig.TriangulationBaselineBoost.Value)
-                : 0.25f;
+                : 0.40f;
             float boost = isMultiStation ? (baseBoost + 0.05f) : baseBoost;
 
             track.TrackingQuality = Mathf.Clamp01(track.TrackingQuality + boost);
@@ -191,16 +192,14 @@ namespace RadioWars.Core
         }
 
         /// <summary>
-        /// Enforces the 120-second inactivity memory rule.
-        /// If no sensor on the team has detected the target for 120 seconds,
+        /// Enforces target-specific inactivity memory rules (60s for Aircraft, 180s for Ground/Naval).
+        /// If no sensor on the team has detected the target within its retention window,
         /// accumulated tracking quality and dwell reset completely to zero.
         /// </summary>
         public static void CheckInactivityExpiration(TriangulationTrack track)
         {
             if (track == null) return;
-            float timeout = (RadioWarsConfig.TrackUncertaintyMemoryTimeoutSeconds != null)
-                ? RadioWarsConfig.TrackUncertaintyMemoryTimeoutSeconds.Value
-                : DefaultMemoryTimeout;
+            float timeout = RWRTriangulationProcessor.GetTargetMemoryDuration(track.EmitterUnit);
 
             float elapsed = Time.timeSinceLevelLoad - track.LastActiveDetectionTime;
             if (track.HadActiveContact && elapsed > timeout)

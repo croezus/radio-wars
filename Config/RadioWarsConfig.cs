@@ -112,6 +112,9 @@ namespace RadioWars.Config
         public static ConfigEntry<bool> HideUntriangulatedRadarIcons;
         public static ConfigEntry<float> VisualRadarIdentificationRangeMeters;
         public static ConfigEntry<float> TargetMemoryDurationSeconds;
+        public static ConfigEntry<float> AircraftMemoryDurationSeconds;
+        public static ConfigEntry<float> GroundTargetMemoryDurationSeconds;
+        public static ConfigEntry<float> PassiveRwrQualityCap;
         public static ConfigEntry<float> RadarTrackingRefineTimeSeconds;
         public static ConfigEntry<float> RadarTrackingDecayTimeSeconds;
 
@@ -672,15 +675,36 @@ namespace RadioWars.Config
             VisualRadarIdentificationRangeMeters = config.Bind(
                 "10. Target Tracking & Memory",
                 "VisualRadarIdentificationRangeMeters",
-                5000.0f,
-                "Direct visual/optical identification range in meters for enemy radar emitters (default: 5000m / 5.0km). Within this range, units are visually acquired: suppression is bypassed, exact coordinates and HUD markers are displayed without ESM triangulation delay."
+                10000.0f,
+                "Direct visual/optical identification range in meters for enemy radar emitters (default: 10000m / 10.0km). Within this range, units are visually acquired: suppression is bypassed, exact coordinates and HUD markers are displayed without ESM triangulation delay."
             );
 
             TargetMemoryDurationSeconds = config.Bind(
                 "10. Target Tracking & Memory",
                 "TargetMemoryDurationSeconds",
                 120.0f,
-                "Duration in seconds for which previously detected targets are remembered at their last known position as outdated contacts ('?' sprite, no velocity/heading telemetry) on the tactical map and HUD after active contact is lost."
+                "Fallback duration in seconds for which previously detected targets are remembered at their last known position as outdated contacts ('?' sprite, no velocity/heading telemetry) on the tactical map and HUD after active contact is lost."
+            );
+
+            AircraftMemoryDurationSeconds = config.Bind(
+                "10. Target Tracking & Memory",
+                "AircraftMemoryDurationSeconds",
+                60.0f,
+                "Target memory retention duration in seconds for airborne combat aircraft (default: 60s). High target dynamics render stale memory tracks obsolete rapidly."
+            );
+
+            GroundTargetMemoryDurationSeconds = config.Bind(
+                "10. Target Tracking & Memory",
+                "GroundTargetMemoryDurationSeconds",
+                180.0f,
+                "Target memory retention duration in seconds for stationary or ground radar stations, SAM sites, and naval vessels (default: 180s)."
+            );
+
+            PassiveRwrQualityCap = config.Bind(
+                "10. Target Tracking & Memory",
+                "PassiveRwrQualityCap",
+                0.20f,
+                "Maximum tracking quality cap (0.0 to 1.0, default: 0.20 = 20%) achievable purely from passive single-station RWR strobes before geometric triangulation, active radar track, or visual acquisition is established."
             );
 
             RadarTrackingRefineTimeSeconds = config.Bind(
@@ -780,8 +804,8 @@ namespace RadioWars.Config
             VisualReconnaissanceBoost = config.Bind(
                 "13. Track Uncertainty & Seeker Dispersion",
                 "VisualReconnaissanceBoost",
-                0.35f,
-                "One-time intelligence quality boost (0.05 to 1.0, default: 0.35 = 35%) granted when a target is visually identified within naked-eye range (<2.5 km). Immediately reveals contacts on HMD and Map when exceeding 0.30 threshold."
+                0.80f,
+                "Intelligence quality level (0.05 to 1.0, default: 0.80 = 80%) established when a target is visually identified within naked-eye range (<10.0 km). Immediately reveals contacts on HMD and Map when exceeding threshold."
             );
 
             VisualReconnaissanceCooldownSeconds = config.Bind(
@@ -822,8 +846,8 @@ namespace RadioWars.Config
             TriangulationBaselineBoost = config.Bind(
                 "13. Track Uncertainty & Seeker Dispersion",
                 "TriangulationBaselineBoost",
-                0.25f,
-                "Intelligence boost granted upon single-ship kinematic baseline triangulation completion (0.05 to 0.50, default: 0.25 = 25%). Multi-station datalink triangulation grants an additional +0.05."
+                0.40f,
+                "Intelligence boost granted upon single-ship kinematic baseline triangulation completion (0.05 to 0.50, default: 0.40 = 40%). Multi-station datalink triangulation grants an additional +0.05."
             );
 
             TrackUncertaintyMaxDispersionMeters = config.Bind(
@@ -997,7 +1021,7 @@ namespace RadioWars.Config
             if (CurvatureMaskAltitudeThreshold != null) CurvatureMaskAltitudeThreshold.Value = 100.0f;
             if (RWRUncertaintyCircleScale != null) RWRUncertaintyCircleScale.Value = 0.30f;
             if (RWRUncertaintyDistanceScaleMax != null) RWRUncertaintyDistanceScaleMax.Value = 0.80f;
-            if (VisualRadarIdentificationRangeMeters != null) VisualRadarIdentificationRangeMeters.Value = 5000.0f;
+            if (VisualRadarIdentificationRangeMeters != null) VisualRadarIdentificationRangeMeters.Value = 10000.0f;
             if (MapReconnaissanceQualityThreshold != null) MapReconnaissanceQualityThreshold.Value = 0.75f;
             if (RWRBaseContribution != null) RWRBaseContribution.Value = 0.005f;
             if (ShowMissileAimpointOnMap != null) ShowMissileAimpointOnMap.Value = false;
@@ -1023,8 +1047,8 @@ namespace RadioWars.Config
             if (CurvatureMaskAltitudeThreshold != null) CurvatureMaskAltitudeThreshold.Value = 40.0f;
             if (RWRUncertaintyCircleScale != null) RWRUncertaintyCircleScale.Value = 1.0f;
             if (RWRUncertaintyDistanceScaleMax != null) RWRUncertaintyDistanceScaleMax.Value = 2.5f;
-            if (VisualRadarIdentificationRangeMeters != null) VisualRadarIdentificationRangeMeters.Value = 2500.0f;
-            if (MapReconnaissanceQualityThreshold != null) MapReconnaissanceQualityThreshold.Value = 0.30f;
+            if (VisualRadarIdentificationRangeMeters != null) VisualRadarIdentificationRangeMeters.Value = 10000.0f;
+            if (MapReconnaissanceQualityThreshold != null) MapReconnaissanceQualityThreshold.Value = 0.75f;
             if (RWRBaseContribution != null) RWRBaseContribution.Value = 0.035f;
             if (ShowMissileAimpointOnMap != null) ShowMissileAimpointOnMap.Value = false;
             if (ARHTerminalActivationDistanceMeters != null) ARHTerminalActivationDistanceMeters.Value = 10000.0f;

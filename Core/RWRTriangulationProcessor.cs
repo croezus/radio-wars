@@ -95,14 +95,130 @@ namespace RadioWars.Core
         private static readonly HashSet<Unit> s_alliedDetectedTargets = new HashSet<Unit>();
         private static FactionHQ _lastPlayerHQ = null;
 
+        private struct AlliedBearingObservation
+        {
+            public Unit Observer;
+            public Vector3 Position;
+            public Vector3 Bearing;
+            public float Timestamp;
+        }
+
+        private static readonly Dictionary<FactionHQ, Dictionary<Unit, List<AlliedBearingObservation>>> _factionBearingObs =
+            new Dictionary<FactionHQ, Dictionary<Unit, List<AlliedBearingObservation>>>();
+
         public static float VisualIdentificationRange
         {
             get
             {
                 return (RadioWarsConfig.VisualRadarIdentificationRangeMeters != null)
                     ? Mathf.Max(RadioWarsConfig.VisualRadarIdentificationRangeMeters.Value, 100.0f)
-                    : 2500.0f;
+                    : 10000.0f;
             }
+        }
+
+        public static float GetTargetMemoryDuration(Unit target)
+        {
+            if (target is Aircraft)
+            {
+                return (RadioWarsConfig.AircraftMemoryDurationSeconds != null)
+                    ? RadioWarsConfig.AircraftMemoryDurationSeconds.Value
+                    : 60.0f;
+            }
+            return (RadioWarsConfig.GroundTargetMemoryDurationSeconds != null)
+                ? RadioWarsConfig.GroundTargetMemoryDurationSeconds.Value
+                : 180.0f;
+        }
+
+        public static void RecordAlliedBearing(FactionHQ hq, Unit emitter, Unit observer, Vector3 observerPos, Vector3 bearing, float timestamp)
+        {
+            if (hq == null || emitter == null || observer == null) return;
+            Dictionary<Unit, List<AlliedBearingObservation>> obsDict;
+            if (!_factionBearingObs.TryGetValue(hq, out obsDict))
+            {
+                obsDict = new Dictionary<Unit, List<AlliedBearingObservation>>();
+                _factionBearingObs[hq] = obsDict;
+            }
+
+            List<AlliedBearingObservation> list;
+            if (!obsDict.TryGetValue(emitter, out list))
+            {
+                list = new List<AlliedBearingObservation>();
+                obsDict[emitter] = list;
+            }
+
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                if (timestamp - list[i].Timestamp > 6.0f || list[i].Observer == null || list[i].Observer.disabled)
+                {
+                    list.RemoveAt(i);
+                }
+            }
+
+            bool updated = false;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].Observer == observer)
+                {
+                    list[i] = new AlliedBearingObservation
+                    {
+                        Observer = observer,
+                        Position = observerPos,
+                        Bearing = bearing,
+                        Timestamp = timestamp
+                    };
+                    updated = true;
+                    break;
+                }
+            }
+            if (!updated)
+            {
+                list.Add(new AlliedBearingObservation
+                {
+                    Observer = observer,
+                    Position = observerPos,
+                    Bearing = bearing,
+                    Timestamp = timestamp
+                });
+            }
+        }
+
+        public static bool CheckMultiBearingTriangulation(FactionHQ hq, Unit emitter, float now)
+        {
+            if (hq == null || emitter == null) return false;
+            Dictionary<Unit, List<AlliedBearingObservation>> obsDict;
+            if (!_factionBearingObs.TryGetValue(hq, out obsDict)) return false;
+
+            List<AlliedBearingObservation> list;
+            if (!obsDict.TryGetValue(emitter, out list) || list == null || list.Count < 2) return false;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (now - list[i].Timestamp > 6.0f || list[i].Observer == null || list[i].Observer.disabled) continue;
+
+                for (int j = i + 1; j < list.Count; j++)
+                {
+                    if (now - list[j].Timestamp > 6.0f || list[j].Observer == null || list[j].Observer.disabled) continue;
+
+                    float separation = Vector3.Distance(list[i].Position, list[j].Position);
+                    if (separation >= 3000.0f)
+                    {
+                        float angle = Vector3.Angle(list[i].Bearing, list[j].Bearing);
+                        if (angle >= 12.0f && angle <= 168.0f)
+                        {
+                            if (RadioWarsConfig.DebugLogging != null && RadioWarsConfig.DebugLogging.Value)
+                            {
+                                if (RadioWarsPlugin.Log != null)
+                                {
+                                    RadioWarsPlugin.Log.LogInfo(string.Format("[RadioWars ESM] Datalink cross-bearing fix on {0}: obs1={1}, obs2={2}, angle={3:F1} deg, baseline={4:F0}m",
+                                        emitter.unitName, list[i].Observer != null ? list[i].Observer.unitName : "null", list[j].Observer != null ? list[j].Observer.unitName : "null", angle, separation));
+                                }
+                            }
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
         }
 
         public static FactionHQ GetPlayerFactionHQ()
@@ -385,12 +501,25 @@ namespace RadioWars.Core
                 track.StableOffsetUnitVector = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
                 track.TrackingQuality = 0.0f; // Initial quality starts at 0, accumulates via sensor ticks
 
+                bool isLocalPlayerInit = (CombatHUD.i != null && CombatHUD.i.aircraft != null && playerAircraft == CombatHUD.i.aircraft);
+                if (isLocalPlayerInit)
+                {
+                    track.FirstObservedOwnshipPos = playerAircraft.transform.position;
+                    track.FirstObservedBearing = worldBearing;
+                    track.FirstObservedTime = now;
+                    track.HasInitialObservation = true;
+                }
+
+                tracks[emitter] = track;
+            }
+
+            bool isLocalPlayer = (CombatHUD.i != null && CombatHUD.i.aircraft != null && playerAircraft == CombatHUD.i.aircraft);
+            if (isLocalPlayer && !track.HasInitialObservation)
+            {
                 track.FirstObservedOwnshipPos = playerAircraft.transform.position;
                 track.FirstObservedBearing = worldBearing;
                 track.FirstObservedTime = now;
                 track.HasInitialObservation = true;
-
-                tracks[emitter] = track;
             }
 
             track.LastUpdateTime = now;
@@ -431,45 +560,60 @@ namespace RadioWars.Core
                 isTriangulated = true;
             }
 
-            // 3. Cooperative Allied Datalink: confirmed active radar track by ally
+            // 3. Cooperative Allied Datalink: active radar track or multi-bearing RWR intersection
             bool enableDatalink = RadioWarsConfig.EnableAlliedDatalink == null || RadioWarsConfig.EnableAlliedDatalink.Value;
-            if (!isTriangulated && enableDatalink)
+            if (enableDatalink)
             {
-                if (s_alliedDetectedTargets.Contains(emitter))
-                {
-                    isTriangulated = true;
-                    track.LastRadarIlluminatedTime = now;
-                }
-                else
-                {
-                    List<Radar> alliedRadars = DatalinkNetwork.RegisteredRadars;
-                    FactionHQ playerHq = playerAircraft.NetworkHQ != null ? playerAircraft.NetworkHQ : GetPlayerFactionHQ();
+                RecordAlliedBearing(hq, emitter, playerAircraft, playerPos, worldBearing, now);
 
-                    for (int i = 0; i < alliedRadars.Count; i++)
+                if (!isTriangulated)
+                {
+                    if (s_alliedDetectedTargets.Contains(emitter))
                     {
-                        Radar allyRadar = alliedRadars[i];
-                        if (allyRadar == null || !allyRadar.IsOperational()) continue;
+                        isTriangulated = true;
+                        track.LastRadarIlluminatedTime = now;
+                    }
+                    else
+                    {
+                        List<Radar> alliedRadars = DatalinkNetwork.RegisteredRadars;
+                        FactionHQ playerHq = playerAircraft.NetworkHQ != null ? playerAircraft.NetworkHQ : GetPlayerFactionHQ();
 
-                        Unit allyUnit = DatalinkNetwork.GetRadarAttachedUnit(allyRadar);
-                        if (allyUnit == null || allyUnit == playerAircraft || allyUnit.disabled) continue;
-
-                        FactionHQ allyHq = DatalinkNetwork.GetUnitFactionHQ(allyUnit);
-                        if (playerHq != null && allyHq != null && allyHq != playerHq) continue;
-
-                        // An allied radar only triangulates if it actively detects/tracks the emitter
-                        if (allyRadar.detectedTargets != null && allyRadar.detectedTargets.Contains(emitter))
+                        for (int i = 0; i < alliedRadars.Count; i++)
                         {
-                            isTriangulated = true;
-                            track.LastRadarIlluminatedTime = now;
-                            s_alliedDetectedTargets.Add(emitter);
-                            break;
+                            Radar allyRadar = alliedRadars[i];
+                            if (allyRadar == null || !allyRadar.IsOperational()) continue;
+
+                            Unit allyUnit = DatalinkNetwork.GetRadarAttachedUnit(allyRadar);
+                            if (allyUnit == null || allyUnit == playerAircraft || allyUnit.disabled) continue;
+
+                            FactionHQ allyHq = DatalinkNetwork.GetUnitFactionHQ(allyUnit);
+                            if (playerHq != null && allyHq != null && allyHq != playerHq) continue;
+
+                            // An allied radar only triangulates if it actively detects/tracks the emitter
+                            if (allyRadar.detectedTargets != null && allyRadar.detectedTargets.Contains(emitter))
+                            {
+                                isTriangulated = true;
+                                track.LastRadarIlluminatedTime = now;
+                                s_alliedDetectedTargets.Add(emitter);
+                                break;
+                            }
+                        }
+                    }
+
+                    // Multi-station RWR intersection: 2+ allied aircraft cross-bearing at >= 12 degrees
+                    if (!isTriangulated && CheckMultiBearingTriangulation(hq, emitter, now))
+                    {
+                        isTriangulated = true;
+                        if (!track.IsTriangulated)
+                        {
+                            TrackUncertaintyCalculator.RecordTriangulationBoost(track, isMultiStation: true);
                         }
                     }
                 }
             }
 
             // 4. Single-ship synthetic kinematic baseline triangulation (cross-bearing flight maneuver)
-            if (!isTriangulated && track.HasInitialObservation)
+            if (!isTriangulated && isLocalPlayer && track.HasInitialObservation)
             {
                 float timeSinceFirst = now - track.FirstObservedTime;
                 if (timeSinceFirst > 3.0f)
@@ -488,40 +632,39 @@ namespace RadioWars.Core
                     if (orthoDist >= reqBaseline && bearingDelta >= reqAngle)
                     {
                         isTriangulated = true;
+                        if (!track.IsTriangulated)
+                        {
+                            TrackUncertaintyCalculator.RecordTriangulationBoost(track, isMultiStation: false);
+                        }
+                    }
+                    else if (timeSinceFirst > 30.0f)
+                    {
+                        track.FirstObservedOwnshipPos = playerPos;
+                        track.FirstObservedBearing = worldBearing;
+                        track.FirstObservedTime = now;
                     }
                 }
             }
 
-            track.IsTriangulated = isTriangulated;
             if (isTriangulated)
             {
+                track.IsTriangulated = true;
                 track.LastTriangulatedTime = now;
             }
 
             // Process tracking quality and memory status
-            ProcessTrackQualityAndPip(track, emitter, playerAircraft, trueDist, visualRange, tier);
+            ProcessTrackQualityAndPip(track, emitter, playerAircraft, trueDist, visualRange, tier, 0.0f);
 
-            // ESM triangulation error and ambiguity circle calculation for map display
-            float maxCapMeters = (tier == RwrTier.Tier1_Basic) ? 1000.0f : ((tier == RwrTier.Tier3_Advanced) ? 200.0f : 500.0f);
-            float tierRate = (tier == RwrTier.Tier1_Basic) ? 0.012f : ((tier == RwrTier.Tier3_Advanced) ? 0.003f : 0.006f);
-            float customErrMult = RadioWarsConfig.RWRTriangulationErrorFactor != null
-                ? Mathf.Clamp(RadioWarsConfig.RWRTriangulationErrorFactor.Value / 0.035f, 0.2f, 2.5f)
-                : 1.0f;
-            float rawError = trueDist * tierRate * customErrMult;
-            float errorMagnitude = Mathf.Min(rawError, maxCapMeters * customErrMult);
-            if (trueDist < visualRange)
-            {
-                errorMagnitude *= Mathf.Clamp01(trueDist / visualRange);
-            }
-
-            Vector3 offset = track.StableOffsetUnitVector * errorMagnitude;
-            track.TriangulatedWorldPos = isTriangulated ? emitterPos : (emitterPos + offset);
-            track.EstimatedCenterWorldPos = track.TriangulatedWorldPos;
+            // True coordinate representation without artificial spatial offset (weapon dispersion handles miss error)
+            track.TriangulatedWorldPos = emitterPos;
+            track.EstimatedCenterWorldPos = emitterPos;
+            track.DynamicPipOffset = Vector3.zero;
 
             // Authoritative CEP calculated from team-wide intelligence, distance, and triangulation geometry
+            float memDuration = GetTargetMemoryDuration(emitter);
             float memElapsed = (track.LastActiveDetectionTime > 0f) ? (Time.timeSinceLevelLoad - track.LastActiveDetectionTime) : 0f;
             float rawCep = TrackUncertaintyCalculator.CalculateDispersionRadius(
-                trueDist, track.TrackingQuality, track.IsInMemoryState(120.0f), memElapsed, isTriangulated);
+                trueDist, track.TrackingQuality, track.IsInMemoryState(memDuration), memElapsed, track.IsTriangulated);
 
             float sigFactor = 1.0f + (1.0f - Mathf.Clamp01(signalStrength01)) * 0.5f;
             float circleScale = RadioWarsConfig.RWRUncertaintyCircleScale != null
@@ -535,7 +678,9 @@ namespace RadioWars.Core
 
         /// <summary>
         /// Computes TrackingQuality accumulation via radar dwell or decay via passive RWR/loss of lock,
-        /// and maintains the 120-second Last Known Position memory state for lost contacts.
+        /// and maintains the target memory state for lost contacts.
+        /// While active contact (visual, radar lock, or RWR pings) is maintained, Q does not decay,
+        /// and the 180s (ground) or 60s (air) memory countdown is continuously reset.
         /// </summary>
         public static void ProcessTrackQualityAndPip(
             TriangulationTrack track,
@@ -543,12 +688,12 @@ namespace RadioWars.Core
             Aircraft playerAircraft,
             float trueDist,
             float visualRange,
-            RwrTier tier)
+            RwrTier tier,
+            float dt = 0.0f)
         {
             if (track == null || emitter == null) return;
 
             float now = Time.timeSinceLevelLoad;
-            float dt = Mathf.Clamp(now - track.LastUpdateTime, 0.001f, 0.5f);
 
             // Check if actively illuminated by ownship radar
             bool ownshipIlluminating = false;
@@ -577,63 +722,71 @@ namespace RadioWars.Core
             float timeSinceHit = now - track.LastRadarIlluminatedTime;
             bool isDirectlyIlluminated = ownshipIlluminating || allyIlluminating;
 
-            float refineTime = (RadioWarsConfig.RadarTrackingRefineTimeSeconds != null)
-                ? Mathf.Max(RadioWarsConfig.RadarTrackingRefineTimeSeconds.Value, 0.5f)
-                : 3.0f;
-            float decayTime = (RadioWarsConfig.RadarTrackingDecayTimeSeconds != null)
-                ? Mathf.Max(RadioWarsConfig.RadarTrackingDecayTimeSeconds.Value, 1.0f)
-                : 10.0f;
+            // Active contact verification:
+            // Contact is ACTIVE if visually identified, actively illuminated by radar, OR if our RWR has received a ping within the last sweep interval (6.0s)
+            bool hasVisual = (trueDist < visualRange);
+            bool hasRadarLock = isDirectlyIlluminated || (timeSinceHit < 6.0f);
+            bool hasRecentRwrPing = (now - track.LastUpdateTime < 6.0f);
 
-            if (trueDist < visualRange)
-            {
-                // Direct visual contact: instantaneous 100% precision
-                TrackUncertaintyCalculator.RecordVisualContact(track);
-            }
-            else if (isDirectlyIlluminated)
-            {
-                // Continuous active radar dwell: refine accuracy towards 1.0 with distance weighting
-                TrackUncertaintyCalculator.RecordRadarDwell(track, dt, trueDist);
-            }
-            else if (timeSinceHit < 6.0f)
-            {
-                // ZERO-DECAY RETENTION WINDOW:
-                // Rotating radars (e.g. RadarStation1, RadarSam1) sweep every 3-5 seconds.
-                // Within this 6-second memory window, signal quality does NOT decay between antenna revolutions!
-            }
-            else
-            {
-                // Lost radar track for > 6.0s: gradual decay of continuous dwell time
-                track.ContinuousDwellSeconds = Mathf.Max(0f, track.ContinuousDwellSeconds - dt);
+            bool isActivelyDetected = hasVisual || hasRadarLock || hasRecentRwrPing;
 
-                // 120-Second Sensor Memory Rollback:
-                // If no sensor has detected this target for 120 seconds, resets intelligence progress to 0.0
-                TrackUncertaintyCalculator.CheckInactivityExpiration(track);
-            }
-
-            track.DynamicPipOffset = Vector3.zero;
-
-            // Update Active Detection vs Last Known Position Memory State
-            bool hasActiveLock = (trueDist < visualRange) || isDirectlyIlluminated || (timeSinceHit < 6.0f);
-            if (hasActiveLock)
+            if (isActivelyDetected)
             {
+                // TARGET IS IN ACTIVE CONTACT:
+                // Refresh memory timer so the 180s/60s countdown is continuously reset!
                 track.HadActiveContact = true;
                 track.LastActiveDetectionTime = now;
                 track.LastKnownGlobalPosition = GlobalPositionExtensions.GlobalPosition(emitter);
                 track.LastKnownHeading = emitter.transform.forward;
                 track.TargetPipPosition = emitter.transform.position;
+
+                if (hasVisual)
+                {
+                    // Direct visual contact (< 10 km): establishes Q >= 0.80
+                    TrackUncertaintyCalculator.RecordVisualContact(track);
+                }
+                else if (isDirectlyIlluminated)
+                {
+                    // Continuous active radar dwell: refine accuracy towards 1.0 with distance weighting
+                    float dwellDt = dt > 0f ? dt : 0.016f;
+                    TrackUncertaintyCalculator.RecordRadarDwell(track, dwellDt, trueDist);
+                }
+                // ZERO DECAY! Quality is completely preserved while active contact (including passive RWR pings) is present!
             }
             else
             {
+                // CONTACT IS LOST:
+                // No visual, no radar illumination, and no RWR pings for > 6.0 seconds.
+                // Target enters the 180s (ground) or 60s (air) memory window.
+                // Coordinates are frozen at last known position.
                 if (track.HadActiveContact)
                 {
-                    // Freeze target coordinates at point of lost contact
                     track.TargetPipPosition = track.LastKnownGlobalPosition.ToLocalPosition();
                 }
                 else
                 {
                     track.TargetPipPosition = emitter.transform.position;
                 }
+
+                if (dt > 0f)
+                {
+                    track.ContinuousDwellSeconds = Mathf.Max(0f, track.ContinuousDwellSeconds - dt);
+
+                    // Continuous linear Q decay over the target's memory window (180s for ground, 60s for air):
+                    float memDuration = GetTargetMemoryDuration(emitter);
+                    float decayRate = (memDuration > 0.0f) ? (1.0f / memDuration) : (1.0f / 120.0f);
+
+                    if (track.TrackingQuality > 0.0f)
+                    {
+                        track.TrackingQuality = Mathf.Max(0.0f, track.TrackingQuality - decayRate * dt);
+                    }
+                }
+
+                // Enforce inactivity memory expiration (wipes track when elapsed > memDuration)
+                TrackUncertaintyCalculator.CheckInactivityExpiration(track);
             }
+
+            track.DynamicPipOffset = Vector3.zero;
         }
 
         private static readonly List<Dictionary<Unit, TriangulationTrack>> _allDictsBuffer = new List<Dictionary<Unit, TriangulationTrack>>();
@@ -738,14 +891,26 @@ namespace RadioWars.Core
                     Unit target = kvp.Key;
                     TriangulationTrack track = kvp.Value;
 
-                    if (target == null || target.disabled || track.IsExpired(memDuration))
+                    float targetMem = GetTargetMemoryDuration(target);
+                    if (target == null || target.disabled || track.IsExpired(targetMem))
                     {
                         _staleList.Add(target);
                         continue;
                     }
 
+                    FactionHQ trackHq = (player != null && player.NetworkHQ != null) ? player.NetworkHQ : GetPlayerFactionHQ();
+                    if (enableDatalink && CheckMultiBearingTriangulation(trackHq, target, Time.timeSinceLevelLoad))
+                    {
+                        if (!track.IsTriangulated)
+                        {
+                            TrackUncertaintyCalculator.RecordTriangulationBoost(track, isMultiStation: true);
+                        }
+                        track.IsTriangulated = true;
+                        track.LastTriangulatedTime = Time.timeSinceLevelLoad;
+                    }
+
                     float dist = (player != null && !player.disabled) ? Vector3.Distance(playerPos, target.transform.position) : 99999f;
-                    ProcessTrackQualityAndPip(track, target, player, dist, visualRange, tier);
+                    ProcessTrackQualityAndPip(track, target, player, dist, visualRange, tier, dt);
                 }
 
                 for (int i = 0; i < _staleList.Count; i++)
@@ -767,10 +932,6 @@ namespace RadioWars.Core
 
         public static void PruneStaleTracks(float maxAgeSeconds = 120.0f)
         {
-            float memDuration = (RadioWarsConfig.TargetMemoryDurationSeconds != null)
-                ? RadioWarsConfig.TargetMemoryDurationSeconds.Value
-                : maxAgeSeconds;
-
             _allDictsBuffer.Clear();
             foreach (var kvp in _factionTracks)
             {
@@ -784,7 +945,8 @@ namespace RadioWars.Core
                 _staleList.Clear();
                 foreach (var kvp in dict)
                 {
-                    if (kvp.Key == null || kvp.Key.disabled || kvp.Value.IsExpired(memDuration))
+                    float targetMem = GetTargetMemoryDuration(kvp.Key);
+                    if (kvp.Key == null || kvp.Key.disabled || kvp.Value.IsExpired(targetMem))
                     {
                         _staleList.Add(kvp.Key);
                     }
@@ -806,6 +968,7 @@ namespace RadioWars.Core
             _fallbackTracks.Clear();
             _staleList.Clear();
             s_alliedDetectedTargets.Clear();
+            _factionBearingObs.Clear();
             _allDictsBuffer.Clear();
             _lastPlayerHQ = null;
         }

@@ -711,16 +711,15 @@ namespace RadioWars.Patches
                     }
                 }
 
-                float memDuration = (RadioWarsConfig.TargetMemoryDurationSeconds != null)
-                    ? RadioWarsConfig.TargetMemoryDurationSeconds.Value
-                    : 120.0f;
+                float memDuration = RWRTriangulationProcessor.GetTargetMemoryDuration(__instance.unit);
 
                 // Layered Intelligence Filtering for Tactical Map & Minimap:
-                // Exact vehicle/ship icons on the map are only revealed once TrackingQuality exceeds threshold (default: 0.30 = 30%).
-                // While Q < 0.30, pinpoint icons are suppressed, and the player relies on realistic RWR bearing strobes and ESM ambiguity circles.
+                // Exact vehicle/ship icons on the map are revealed strictly once TrackingQuality exceeds threshold (default: 0.75 = 75%).
+                // Triangulation contributes +0.45 to Q, but never bypasses the Q threshold directly.
+                // If intelligence is insufficient (Q < 0.75), pinpoint icons are suppressed, and the player relies on realistic RWR bearing strobes and ESM ambiguity circles.
                 float mapThreshold = (RadioWarsConfig.MapReconnaissanceQualityThreshold != null)
                     ? RadioWarsConfig.MapReconnaissanceQualityThreshold.Value
-                    : 0.30f;
+                    : 0.75f;
 
                 TriangulationTrack track = RWRTriangulationProcessor.GetTrack(playerHq, __instance.unit);
                 float trackingQuality = (track != null) ? track.TrackingQuality : 0.0f;
