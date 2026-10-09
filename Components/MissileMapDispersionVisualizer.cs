@@ -210,13 +210,33 @@ namespace RadioWars.Components
                             if (slot.AimMarker.gameObject.activeSelf) slot.AimMarker.gameObject.SetActive(false);
                         }
 
-                        // 2. Terminal Seeker Pitbull Basket Ring (2.8 km boundary)
-                        // Displayed only for active radar and optical standoff weapons with terminal pitbull baskets
+                        // 2. Terminal Seeker Pitbull Basket Ring (10 km for ARH, 7 km for ARAD, 2.8 km for Optical)
+                        // Displayed for active radar, passive anti-radiation, and optical standoff weapons
+                        float weaponBasketDist = 2800.0f;
+                        if (seeker is ARHSeeker)
+                        {
+                            weaponBasketDist = (RadioWarsConfig.ARHTerminalActivationDistanceMeters != null)
+                                ? RadioWarsConfig.ARHTerminalActivationDistanceMeters.Value
+                                : 10000.0f;
+                        }
+                        else if (seeker is ARMSeeker)
+                        {
+                            weaponBasketDist = (RadioWarsConfig.ARADTerminalActivationDistanceMeters != null)
+                                ? RadioWarsConfig.ARADTerminalActivationDistanceMeters.Value
+                                : 7000.0f;
+                        }
+                        else
+                        {
+                            weaponBasketDist = (RadioWarsConfig.MissileTerminalActivationDistanceMeters != null)
+                                ? RadioWarsConfig.MissileTerminalActivationDistanceMeters.Value
+                                : 2800.0f;
+                        }
+
                         if (!isBallistic && !isIR && !isLaser)
                         {
                             if (!slot.BasketRing.gameObject.activeSelf) slot.BasketRing.gameObject.SetActive(true);
-                            float ringDiamScreen = 2.0f * pitbullDist * mapFactor * layerScale;
-                            float clampedDiamScreen = Mathf.Clamp(ringDiamScreen, 12.0f, 4000.0f);
+                            float ringDiamScreen = 2.0f * weaponBasketDist * mapFactor * layerScale;
+                            float clampedDiamScreen = Mathf.Clamp(ringDiamScreen, 12.0f, 8000.0f);
                             float ringDiam = clampedDiamScreen / layerScale;
                             slot.BasketRingRt.localPosition = aimLocalPos;
                             slot.BasketRingRt.sizeDelta = new Vector2(ringDiam, ringDiam);
@@ -224,7 +244,7 @@ namespace RadioWars.Components
 
                             // Visual color cue for pitbull basket
                             float dispMag = disp.magnitude;
-                            bool targetInBasket = hasTarget && (dispMag <= pitbullDist);
+                            bool targetInBasket = hasTarget && (dispMag <= weaponBasketDist);
                             slot.BasketRing.color = targetInBasket
                                 ? new Color(0.2f, 0.90f, 0.50f, 0.65f)  // Green: Target is inside pitbull basket
                                 : new Color(0.2f, 0.80f, 1.0f, 0.55f);   // Cyan: Standard phosphor basket
@@ -242,7 +262,7 @@ namespace RadioWars.Components
 
                             // Dash color: Green if target is inside basket, Amber if outside
                             float dispMag = disp.magnitude;
-                            bool targetInBasket = hasTarget && (dispMag <= pitbullDist);
+                            bool targetInBasket = hasTarget && (dispMag <= weaponBasketDist);
                             slot.OffsetLine.color = targetInBasket
                                 ? new Color(0.3f, 1.0f, 0.5f, 0.80f)
                                 : new Color(1.0f, 0.65f, 0.15f, 0.80f);

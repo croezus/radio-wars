@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 using RadioWars.Core;
@@ -77,12 +78,12 @@ namespace RadioWars.Patches
             ___targetDist = dist;
 
             // Terminal Pitbull Acquisition Basket:
-            // Prior to active radar lock acquisition, target must be within terminal basket range (default 2800m).
-            // Prevents long-distance active seeker acquisition that would bypass track uncertainty dispersion.
+            // Prior to active radar lock acquisition, target must be within ARH terminal basket range (default 10000m / 10km).
+            // Missiles remain silent on datalink until within this range, providing realistic defensive reaction time.
             bool lockEstablished = ___radarLockEstablished;
-            float pitbullDist = (RadioWarsConfig.MissileTerminalActivationDistanceMeters != null)
-                ? RadioWarsConfig.MissileTerminalActivationDistanceMeters.Value
-                : 2800.0f;
+            float pitbullDist = (RadioWarsConfig.ARHTerminalActivationDistanceMeters != null)
+                ? RadioWarsConfig.ARHTerminalActivationDistanceMeters.Value
+                : 10000.0f;
 
             if (!lockEstablished && dist > pitbullDist)
             {
@@ -765,6 +766,12 @@ namespace RadioWars.Patches
                 if (!RadioWarsConfig.IsModActive) return;
                 if (__instance == null) return;
 
+                Radar r = (target != null) ? (target.radar as Radar) : null;
+                if (r != null)
+                {
+                    ARMSeeker_TrackCurrentTarget_Patch.RegisterDesignatedRadar(__instance, r);
+                }
+
                 Vector3 disp = SeekerDispersionHelper.GetDispersionForMissile(___missile, target);
 
                 if (disp != Vector3.zero)
@@ -784,9 +791,8 @@ namespace RadioWars.Patches
     }
 
     /// <summary>
-    /// Delays ARM passive RF seeker radar source evaluation until the missile arrives within
-    /// terminal activation basket (MissileTerminalActivationDistanceMeters, default 2800m) of displaced aimpoint.
-    /// In midcourse flight, munition navigates inertially towards displaced knownPos.
+    /// Delays ARM passive RF seeker radar source evaluation until within terminal activation basket (default 7000m / 7.0km).
+    /// Before 7 km, munition navigates via datalink/inertial guidance towards displaced aimpoint.
     /// </summary>
     [HarmonyPatch(typeof(ARMSeeker), "EvaluateRadarSources")]
     public static class ARMSeeker_EvaluateRadarSources_Patch
@@ -801,14 +807,14 @@ namespace RadioWars.Patches
 
                 float distToWaypoint = Vector3.Distance(___missile.transform.position, ___knownPos.ToLocalPosition());
 
-                float pitbullDist = (RadioWarsConfig.MissileTerminalActivationDistanceMeters != null)
-                    ? RadioWarsConfig.MissileTerminalActivationDistanceMeters.Value
-                    : 2800.0f;
+                float activationDist = (RadioWarsConfig.ARADTerminalActivationDistanceMeters != null)
+                    ? RadioWarsConfig.ARADTerminalActivationDistanceMeters.Value
+                    : 7000.0f;
 
-                if (distToWaypoint > pitbullDist)
+                if (distToWaypoint > activationDist)
                 {
-                    // Munition is still in midcourse inertial guidance towards displaced coordinates:
-                    // Seeker RF receiver is not yet within terminal acquisition basket.
+                    // Munition is still in midcourse datalink/inertial guidance towards displaced coordinates:
+                    // Passive RF receiver does not evaluate radar sources until within 7 km basket.
                     __result = null;
                     return false;
                 }
@@ -822,11 +828,26 @@ namespace RadioWars.Patches
     }
 
     /// <summary>
-    /// Delays ARM current target tracking until within terminal activation basket of displaced aimpoint.
+    /// Delays ARM current target tracking until within terminal passive RF acquisition basket (default 7000m / 7.0km).
+    /// Before 7 km, munition navigates via datalink towards displaced coordinates.
+    /// Within 7 km, passive RF receiver detects enemy radar radiation and homes directly on transmitter antenna.
+    /// Overrides vanilla 10,000m LineOfSight clamp with 50,000m terrain linecast.
+    /// If radar shuts down, munition continues towards stored displaced aimpoint.
     /// </summary>
     [HarmonyPatch(typeof(ARMSeeker), "TrackCurrentTarget")]
     public static class ARMSeeker_TrackCurrentTarget_Patch
     {
+        private static readonly ConditionalWeakTable<ARMSeeker, Radar> _designatedRadars = new ConditionalWeakTable<ARMSeeker, Radar>();
+        private static readonly FieldInfo f_targetedRadar = AccessTools.Field(typeof(ARMSeeker), "targetedRadar");
+        private static readonly FieldInfo f_lastLOSCheck = AccessTools.Field(typeof(ARMSeeker), "lastLOSCheck");
+
+        public static void RegisterDesignatedRadar(ARMSeeker seeker, Radar radar)
+        {
+            if (seeker == null || radar == null) return;
+            _designatedRadars.Remove(seeker);
+            _designatedRadars.Add(seeker, radar);
+        }
+
         [HarmonyPrefix]
         public static bool Prefix(ARMSeeker __instance, ref Radar __result, Missile ___missile, GlobalPosition ___knownPos)
         {
@@ -835,17 +856,54 @@ namespace RadioWars.Patches
                 if (!RadioWarsConfig.IsModActive) return true;
                 if (__instance == null || ___missile == null) return true;
 
+                float activationDist = (RadioWarsConfig.ARADTerminalActivationDistanceMeters != null)
+                    ? RadioWarsConfig.ARADTerminalActivationDistanceMeters.Value
+                    : 7000.0f;
+
+                Radar designated = null;
+                _designatedRadars.TryGetValue(__instance, out designated);
+
                 float distToWaypoint = Vector3.Distance(___missile.transform.position, ___knownPos.ToLocalPosition());
+                float distToRadar = (designated != null) ? Vector3.Distance(___missile.transform.position, designated.transform.position) : float.MaxValue;
+                float dist = Mathf.Min(distToWaypoint, distToRadar);
 
-                float pitbullDist = (RadioWarsConfig.MissileTerminalActivationDistanceMeters != null)
-                    ? RadioWarsConfig.MissileTerminalActivationDistanceMeters.Value
-                    : 2800.0f;
+                if (dist > activationDist)
+                {
+                    // Beyond 7 km: midcourse datalink guidance towards displaced waypoint
+                    __result = null;
+                    return false;
+                }
 
-                if (distToWaypoint > pitbullDist)
+                // Within 7 km: check current targeted radar or restore designated radar
+                Radar targeted = (f_targetedRadar != null) ? (Radar)f_targetedRadar.GetValue(__instance) : null;
+                if (targeted == null && designated != null && designated.activated)
+                {
+                    targeted = designated;
+                    if (f_targetedRadar != null) f_targetedRadar.SetValue(__instance, targeted);
+                }
+
+                if (targeted == null || !targeted.activated)
                 {
                     __result = null;
                     return false;
                 }
+
+                // Check LineOfSight up to 50,000m (overriding vanilla 10,000m clamp)
+                float lastLOS = (f_lastLOSCheck != null) ? (float)f_lastLOSCheck.GetValue(__instance) : 0f;
+                if (Time.timeSinceLevelLoad - lastLOS > 0.25f)
+                {
+                    if (f_lastLOSCheck != null) f_lastLOSCheck.SetValue(__instance, Time.timeSinceLevelLoad);
+
+                    Unit targetUnit = targeted.GetAttachedUnit();
+                    if (targetUnit == null || !targetUnit.LineOfSight(___missile.transform.position, 50000f))
+                    {
+                        __result = null;
+                        return false;
+                    }
+                }
+
+                __result = targeted;
+                return false;
             }
             catch (Exception ex)
             {
@@ -884,9 +942,9 @@ namespace RadioWars.Patches
                     ___positionalErrorVector = new Vector3(disp.x, 0f, disp.z);
                 }
 
-                float pitbullDist = (RadioWarsConfig.MissileTerminalActivationDistanceMeters != null)
-                    ? RadioWarsConfig.MissileTerminalActivationDistanceMeters.Value
-                    : 2800.0f;
+                float pitbullDist = (RadioWarsConfig.ARHTerminalActivationDistanceMeters != null)
+                    ? RadioWarsConfig.ARHTerminalActivationDistanceMeters.Value
+                    : 10000.0f;
 
                 ___terminalRange = pitbullDist;
             }
@@ -901,7 +959,7 @@ namespace RadioWars.Patches
     /// Guides ARH missile via datalink midcourse towards target coordinates displaced by track uncertainty.
     /// If radar contact was lost and target is in 120s memory state, guides missile to LastKnownGlobalPosition + displacement.
     /// Once seeker acquires autonomous active lock at terminal pitbull range, this patch yields to seeker radar.
-    /// Clamps terminalRange in Prefix so vanilla distance gate uses terminal basket range (2800m).
+    /// Clamps terminalRange in Prefix so vanilla distance gate uses terminal basket range (default 10000m / 10km).
     /// </summary>
     [HarmonyPatch(typeof(ARHSeeker), "DatalinkMode")]
     public static class ARHSeeker_DatalinkMode_Patch
@@ -912,9 +970,9 @@ namespace RadioWars.Patches
             try
             {
                 if (!RadioWarsConfig.IsModActive || __instance == null) return;
-                float pitbullDist = (RadioWarsConfig.MissileTerminalActivationDistanceMeters != null)
-                    ? RadioWarsConfig.MissileTerminalActivationDistanceMeters.Value
-                    : 2800.0f;
+                float pitbullDist = (RadioWarsConfig.ARHTerminalActivationDistanceMeters != null)
+                    ? RadioWarsConfig.ARHTerminalActivationDistanceMeters.Value
+                    : 10000.0f;
                 ___terminalRange = pitbullDist;
             }
             catch { }

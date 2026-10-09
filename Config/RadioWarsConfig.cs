@@ -6,6 +6,14 @@ namespace RadioWars.Config
     public static class RadioWarsConfig
     {
         // 00. Testing & Diagnostics
+        public enum ConfigurationPreset
+        {
+            SidnensPreset,
+            Default,
+            Custom
+        }
+
+        public static ConfigEntry<ConfigurationPreset> GameplayPreset;
         public static ConfigEntry<bool> ModEnabled;
         public static ConfigEntry<KeyCode> ToggleModKey;
         public static ConfigEntry<bool> ShowDebugHUD;
@@ -141,6 +149,8 @@ namespace RadioWars.Config
         public static ConfigEntry<float> TrackUncertaintyMinDispersionMeters;
         public static ConfigEntry<float> TrackUncertaintyEdgeBiasMinFraction;
         public static ConfigEntry<float> TrackUncertaintyEdgeBiasExponent;
+        public static ConfigEntry<float> ARHTerminalActivationDistanceMeters;
+        public static ConfigEntry<float> ARADTerminalActivationDistanceMeters;
         public static ConfigEntry<float> MissileTerminalActivationDistanceMeters;
         public static ConfigEntry<float> TrackUncertaintyRangeWeightingMin;
         public static ConfigEntry<float> TrackUncertaintyRangeWeightingMax;
@@ -151,6 +161,25 @@ namespace RadioWars.Config
         public static void Initialize(ConfigFile config)
         {
             // 00. Testing & Diagnostics
+            GameplayPreset = config.Bind(
+                "00. Testing & Diagnostics",
+                "ConfigurationPreset",
+                ConfigurationPreset.SidnensPreset,
+                "Master configuration preset: 'SidnensPreset' (curated benchmark balance tuned by Sidnen: refined RWR scale, 5km visual ID, 100m curvature mask, telemetry HUD and map missile visualizer off), 'Default' (original baseline development defaults), or 'Custom' (manual configuration; preserves all custom values below without preset overrides)."
+            );
+
+            GameplayPreset.SettingChanged += (sender, args) =>
+            {
+                if (GameplayPreset.Value == ConfigurationPreset.SidnensPreset)
+                {
+                    ApplySidnenPreset();
+                }
+                else if (GameplayPreset.Value == ConfigurationPreset.Default)
+                {
+                    ApplyDefaultPreset();
+                }
+            };
+
             ModEnabled = config.Bind(
                 "00. Testing & Diagnostics",
                 "ModEnabled",
@@ -168,7 +197,7 @@ namespace RadioWars.Config
             ShowDebugHUD = config.Bind(
                 "00. Testing & Diagnostics",
                 "ShowDebugHUD",
-                true,
+                false,
                 "Show on-screen real-time radar telemetry panel (Distance, Echo Power, SNR, Dynamic RCS, Notch status, Jamming, Burn-Through)."
             );
 
@@ -182,7 +211,7 @@ namespace RadioWars.Config
             DrawDebugGizmos = config.Bind(
                 "00. Testing & Diagnostics",
                 "DrawDebugGizmos",
-                true,
+                false,
                 "Draw in-game radar line-of-sight rays and Doppler velocity vectors (Green = Clear, Yellow = Clutter-degraded, Red = Notched / Masked)."
             );
 
@@ -240,8 +269,8 @@ namespace RadioWars.Config
             CurvatureMaskAltitudeThreshold = config.Bind(
                 "02. Radar Detection & Atmospheric Loss",
                 "CurvatureMaskAltitudeThreshold_m",
-                40.0f,
-                "Minimum altitude above terrain in meters for Earth curvature 4/3 refraction masking to apply. Targets flying above this altitude (>= 40m) are never occluded by curvature."
+                100.0f,
+                "Minimum altitude above terrain in meters for Earth curvature 4/3 refraction masking to apply. Targets flying above this altitude (>= 100m) are never occluded by curvature."
             );
 
             AtmosphericLossEnabled = config.Bind(
@@ -405,15 +434,15 @@ namespace RadioWars.Config
             RWRUncertaintyCircleScale = config.Bind(
                 "06. Tactical Map Display (Key M)",
                 "RWRUncertaintyCircleScale",
-                1.0f,
+                0.30f,
                 "Multiplier for the diameter of untriangulated RWR uncertainty circles on the fullscreen tactical map."
             );
 
             RWRUncertaintyDistanceScaleMax = config.Bind(
                 "06. Tactical Map Display (Key M)",
                 "RWRUncertaintyDistanceScaleMax",
-                2.5f,
-                "Maximum distance-based expansion multiplier for the untriangulated RWR uncertainty circle at long standoff range (default: 2.5x). Scales smoothly from 1.0x at visual identification distance (~10km) up to this multiplier at long standoff distance (60km)."
+                0.80f,
+                "Maximum distance-based expansion multiplier for the untriangulated RWR uncertainty circle at long standoff range (default: 0.8x). Scales smoothly from 1.0x at visual identification distance (~10km) up to this multiplier at long standoff distance (60km)."
             );
 
             RWRSearchConeOpacity = config.Bind(
@@ -633,8 +662,8 @@ namespace RadioWars.Config
             VisualRadarIdentificationRangeMeters = config.Bind(
                 "10. Target Tracking & Memory",
                 "VisualRadarIdentificationRangeMeters",
-                2500.0f,
-                "Direct visual/optical identification range in meters for enemy radar emitters (default: 2500m / 2.5km, matching vanilla naked-eye spotting). Within this range, units are visually acquired: suppression is bypassed, exact coordinates and HUD markers are displayed without ESM triangulation delay."
+                5000.0f,
+                "Direct visual/optical identification range in meters for enemy radar emitters (default: 5000m / 5.0km). Within this range, units are visually acquired: suppression is bypassed, exact coordinates and HUD markers are displayed without ESM triangulation delay."
             );
 
             TargetMemoryDurationSeconds = config.Bind(
@@ -734,8 +763,8 @@ namespace RadioWars.Config
             MapReconnaissanceQualityThreshold = config.Bind(
                 "13. Track Uncertainty & Seeker Dispersion",
                 "MapReconnaissanceQualityThreshold",
-                0.30f,
-                "Tracking quality threshold (0.0 to 1.0) required for hostile radar threats to reveal pinpoint vehicle/ship icons on the tactical map and minimap (default: 0.30 = 30%). Below this threshold, only realistic RWR bearing strobes and ESM ambiguity circles are shown."
+                0.75f,
+                "Tracking quality threshold (0.0 to 1.0) required for hostile radar threats to reveal pinpoint vehicle/ship icons on the tactical map and minimap (default: 0.75 = 75%). Below this threshold, only realistic RWR bearing strobes and ESM ambiguity circles are shown."
             );
 
             VisualReconnaissanceBoost = config.Bind(
@@ -776,8 +805,8 @@ namespace RadioWars.Config
             RWRBaseContribution = config.Bind(
                 "13. Track Uncertainty & Seeker Dispersion",
                 "RWRBaseContribution",
-                0.035f,
-                "Base tracking quality increment per discrete tick for ownship passive RWR reception (0.005 to 0.20, default: 0.035 = 3.5%). Modified by distance weighting and RWR hardware tier."
+                0.005f,
+                "Base tracking quality increment per discrete tick for ownship passive RWR reception (0.005 to 0.20, default: 0.005 = 0.5%). Modified by distance weighting and RWR hardware tier."
             );
 
             TriangulationBaselineBoost = config.Bind(
@@ -815,11 +844,25 @@ namespace RadioWars.Config
                 "Power curve exponent for peripheral edge dispersion bias (0.1 to 2.0, default: 0.40). Lower values heavily bias displacement towards the outer edge of the CEP circle."
             );
 
+            ARHTerminalActivationDistanceMeters = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "ARHTerminalActivationDistanceMeters",
+                10000.0f,
+                "Terminal active radar homing (ARH) seeker pitbull activation distance in meters (default: 10000m / 10.0km). Active radar missiles (SAAM-38, MSAAM, Scythe) remain in silent midcourse datalink flight until reaching this distance from target, after which the seeker radar powers ON and sends active RF pings, providing realistic reaction and defensive notching time for the defender."
+            );
+
+            ARADTerminalActivationDistanceMeters = config.Bind(
+                "13. Track Uncertainty & Seeker Dispersion",
+                "ARADTerminalActivationDistanceMeters",
+                7000.0f,
+                "Terminal anti-radiation (ARAD / ARMSeeker) passive RF seeker activation distance in meters (default: 7000m / 7.0km). Anti-radiation missiles (ARAD-116, ARAD-45) navigate via midcourse datalink/inertial guidance towards target coordinates until within 7 km, after which the passive RF receiver begins detecting enemy radar emissions and homes directly onto the radiating transmitter antenna."
+            );
+
             MissileTerminalActivationDistanceMeters = config.Bind(
                 "13. Track Uncertainty & Seeker Dispersion",
                 "MissileTerminalActivationDistanceMeters",
                 2800.0f,
-                "Terminal seeker pitbull activation distance in meters (default: 2800m / 2.8km). ARH and ARM seekers remain in midcourse inertial/datalink guidance until reaching this distance from the displaced aimpoint, preventing distant target acquisition."
+                "Terminal optical and guided bomb/shell seeker activation distance in meters (default: 2800m / 2.8km). Optical contrast seekers (AGM-48, AGM-68, PAB bombs, guided shells) remain in midcourse inertial/datalink guidance until reaching this distance from the displaced aimpoint."
             );
 
             TrackUncertaintyRangeWeightingMin = config.Bind(
@@ -856,6 +899,47 @@ namespace RadioWars.Config
                 true,
                 "When true, only munitions launched by the player aircraft are displayed on the tactical map aimpoint visualizer. When false, all friendly faction missiles are displayed."
             );
+
+            if (GameplayPreset.Value == ConfigurationPreset.SidnensPreset)
+            {
+                ApplySidnenPreset();
+            }
+            else if (GameplayPreset.Value == ConfigurationPreset.Default)
+            {
+                ApplyDefaultPreset();
+            }
+        }
+
+        public static void ApplySidnenPreset()
+        {
+            if (ShowDebugHUD != null) ShowDebugHUD.Value = false;
+            if (DrawDebugGizmos != null) DrawDebugGizmos.Value = false;
+            if (CurvatureMaskAltitudeThreshold != null) CurvatureMaskAltitudeThreshold.Value = 100.0f;
+            if (RWRUncertaintyCircleScale != null) RWRUncertaintyCircleScale.Value = 0.30f;
+            if (RWRUncertaintyDistanceScaleMax != null) RWRUncertaintyDistanceScaleMax.Value = 0.80f;
+            if (VisualRadarIdentificationRangeMeters != null) VisualRadarIdentificationRangeMeters.Value = 5000.0f;
+            if (MapReconnaissanceQualityThreshold != null) MapReconnaissanceQualityThreshold.Value = 0.75f;
+            if (RWRBaseContribution != null) RWRBaseContribution.Value = 0.005f;
+            if (ShowMissileAimpointOnMap != null) ShowMissileAimpointOnMap.Value = false;
+            if (ARHTerminalActivationDistanceMeters != null) ARHTerminalActivationDistanceMeters.Value = 10000.0f;
+            if (ARADTerminalActivationDistanceMeters != null) ARADTerminalActivationDistanceMeters.Value = 7000.0f;
+            if (MissileTerminalActivationDistanceMeters != null) MissileTerminalActivationDistanceMeters.Value = 2800.0f;
+        }
+
+        public static void ApplyDefaultPreset()
+        {
+            if (ShowDebugHUD != null) ShowDebugHUD.Value = true;
+            if (DrawDebugGizmos != null) DrawDebugGizmos.Value = true;
+            if (CurvatureMaskAltitudeThreshold != null) CurvatureMaskAltitudeThreshold.Value = 40.0f;
+            if (RWRUncertaintyCircleScale != null) RWRUncertaintyCircleScale.Value = 1.0f;
+            if (RWRUncertaintyDistanceScaleMax != null) RWRUncertaintyDistanceScaleMax.Value = 2.5f;
+            if (VisualRadarIdentificationRangeMeters != null) VisualRadarIdentificationRangeMeters.Value = 2500.0f;
+            if (MapReconnaissanceQualityThreshold != null) MapReconnaissanceQualityThreshold.Value = 0.30f;
+            if (RWRBaseContribution != null) RWRBaseContribution.Value = 0.035f;
+            if (ShowMissileAimpointOnMap != null) ShowMissileAimpointOnMap.Value = false;
+            if (ARHTerminalActivationDistanceMeters != null) ARHTerminalActivationDistanceMeters.Value = 10000.0f;
+            if (ARADTerminalActivationDistanceMeters != null) ARADTerminalActivationDistanceMeters.Value = 7000.0f;
+            if (MissileTerminalActivationDistanceMeters != null) MissileTerminalActivationDistanceMeters.Value = 2800.0f;
         }
 
         public static bool IsModActive
@@ -883,7 +967,7 @@ namespace RadioWars.Config
         {
             get
             {
-                return CurvatureMaskAltitudeThreshold != null ? CurvatureMaskAltitudeThreshold.Value : 40.0f;
+                return CurvatureMaskAltitudeThreshold != null ? CurvatureMaskAltitudeThreshold.Value : 100.0f;
             }
         }
     }
